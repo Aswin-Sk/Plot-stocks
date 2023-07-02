@@ -1,11 +1,10 @@
 import plotly.graph_objects as go
-import plotly.utils
-import yfinance as yf
-import numpy as np
 import pandas as pd
-import tensorflow as tf
 import predict
 import json
+from datetime import datetime, timedelta
+
+
 def get_duration_label(duration):
     if duration[1] == 'm':
         return duration[0] + ' ' + "Month(s)"
@@ -13,45 +12,61 @@ def get_duration_label(duration):
         return duration[0] + ' ' + "Year(s)"
     return duration[0]
 
+
+from datetime import timedelta
+
 def create_graph(data, company_name, period, future_predictions=None):
-    fig = go.Figure()
-
+    graph_data = []
     if future_predictions is not None:
-        # Smooth curve for historical data
-        alpha = 0.2  # Adjust the alpha parameter as needed
-        smoothed_data = predict.exponential_weighting(data['Close'], alpha)
-        fig.add_trace(go.Scatter(x=data['Date'], y=smoothed_data, name='Historical Data (Smooth)'))
+        alpha = 0.2
+        smoothed_data = predict.exponential_weighting(data['Close'], alpha).tolist()
+        graph_data.append({
+            'x': data['Date'].dt.strftime('%Y-%m-%d').tolist(),
+            'y': smoothed_data,
+            'type': 'scatter',
+            'mode': 'lines+markers',
+            'marker': {'color': 'red'},
+            'name': 'Historical Data (Smooth)'
+        })
     else:
-        fig.add_trace(go.Scatter(x=data['Date'], y=data['Close'], name='Historical Data'))
+        graph_data.append({
+            'x': data['Date'].dt.strftime('%Y-%m-%d').tolist(),
+            'y': data['Close'].tolist(),
+            'type': 'scatter',
+            'mode': 'lines+markers',
+            'name': 'Historical Data'
+        })
 
     if future_predictions is not None:
-        future_dates = pd.date_range(start=data['Date'].iloc[-1] + pd.DateOffset(days=1), periods=len(future_predictions), freq='D').strftime('%Y-%m-%d').tolist()
-        fig.add_trace(go.Scatter(x=future_dates, y=future_predictions.flatten(), name='Future Predictions'))
+        last_date = data['Date'].iloc[-1].to_pydatetime()
+        future_dates = pd.date_range(start=last_date + timedelta(days=1), periods=len(future_predictions), freq='D')
+        future_dates_str = future_dates.strftime('%Y-%m-%d').tolist()
+        graph_data.append({
+            'x': [data['Date'].iloc[-1].strftime('%Y-%m-%d')] + future_dates_str,
+            'y': [data['Close'].iloc[-1]] + future_predictions.flatten().tolist(),
+            'type': 'scatter',
+            'mode': 'lines+markers',
+            'name': 'Future Predictions'
+        })
 
-    fig.update_layout(
-        title=company_name + " - Stock Price of past " + get_duration_label(period),
-        xaxis_title='Date',
-        yaxis_title='Price (in USD)',
-        plot_bgcolor='black',
-        paper_bgcolor='black',
-        font=dict(color='white'),
-        xaxis=dict(showgrid=False),
-        yaxis=dict(showgrid=False)
-    )
-    return fig
+    layout = {
+        'width': 320,
+        'height': 240,
+        'title': company_name + " - Stock Price of past " + get_duration_label(period)
+    }
+
+    return {
+        'data': graph_data,
+        'layout': layout
+    }
 
 
-def plot_graph(fig):
-    fig.show()
-def make_graph(stock_data,company_name,span, needPredictions=False, interval='1d'):
-    
-
+def make_graph(stock_data, company_name, span, needPredictions=False, interval='1d'):
     # Call the predict function to get future prices
     if needPredictions:
-        future_prices = predict.predict(stock_data,"2y", future=20)  # Use your desired value for 'future'
-        fig = create_graph(stock_data, company_name, span, future_predictions=future_prices)
+        future_prices = predict.predict(stock_data, "2y", future=20)  # Use your desired value for 'future'
+        graph = create_graph(stock_data, company_name, span, future_predictions=future_prices)
     else:
-        fig = create_graph(stock_data, company_name, span)
-    plot_graph(fig)
-    return json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
+        graph = create_graph(stock_data, company_name, span)
 
+    return json.dumps(graph)
